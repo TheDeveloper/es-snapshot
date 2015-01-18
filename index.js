@@ -104,7 +104,7 @@ snap.schedule = function schedule(cb) {
       snap.check,
       function(d, done) {
         if (typeof d !== 'function') return complete();
-        create(done);
+        snap.create(done);
       },
       function(d, done) {
         created = d;
