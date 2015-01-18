@@ -1,0 +1,33 @@
+{
+  "name": "es-snapshot",
+  "version": "0.0.0",
+  "description": "Manage Elasticsearch snapshots",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thedeveloper/es-snapshot"
+  },
+  "keywords": [
+    "elasticsearch",
+    "snapshot"
+  ],
+  "author": "Geoff Wagstaff",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/thedeveloper/es-snapshot/issues"
+  },
+  "homepage": "https://github.com/thedeveloper/es-snapshot",
+  "dependencies": {
+    "async": "^0.9.0",
+    "moment": "^2.9.0",
+    "node-redis-warlock": "^0.1.2"
+  },
+  "devDependencies": {
+    "elasticsearch": "^3.1.1",
+    "mocha": "^2.1.0",
+    "redis": "^0.12.1"
+  }
+}
