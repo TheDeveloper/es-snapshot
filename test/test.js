@@ -1,8 +1,7 @@
 var snap = require('../')({
   redis: require('redis').createClient(),
   elasticsearch: require('elasticsearch').Client({log:'trace'}),
-  repository: 's3-backups',
-  scheduleInterval: 2000
+  repository: 's3-backups'
 });
 var assert = require('assert');
 var log = process.env.LOG && function() { console.log(JSON.stringify(arguments, null, 2)); } || function(){};
