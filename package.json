@@ -1,6 +1,6 @@
 {
   "name": "es-snapshot",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Manage Elasticsearch snapshots",
   "main": "index.js",
   "scripts": {
