@@ -2,17 +2,24 @@ var Warlock = require('node-redis-warlock');
 var moment = require('moment');
 var async = require('async');
 
-var redis, es, snapshotInterval, warlock, repo;
-
-var snap = {};
-
-var c = {
-  snapshotInterval: 12*3600000,
-  retention: { minimum: 10, interval: 'day', count: 30 },
-  scheduleInterval: 300000
-};
-
 module.exports = function(opts) {
+  var redis, es, snapshotInterval, warlock, repo;
+
+  var snap = {};
+
+  var c = {
+    snapshotInterval: 12*3600000,
+    retention: {
+      // Time granularity to use for retention period
+      interval: 'day',
+      // Number of interval to use for retention period
+      num_intervals: 30,
+      // Minimum number of snapshots to retain regardless of retention period
+      minimum: 10
+    },
+    lockKey: 'es-snap'
+  };
+
   es = opts.elasticsearch;
   redis = opts.redis;
   for (var p in opts) {
@@ -20,90 +27,96 @@ module.exports = function(opts) {
   }
   repo = c.repository;
   warlock = Warlock(redis);
-  return snap;
-};
 
-snap.check = function check(cb) {
-  warlock.lock('es-snap', c.snapshotInterval, cb);
-};
+  snap.checkLock = function checkLock(cb) {
+    warlock.lock(c.lockKey, c.snapshotInterval, cb);
+  };
 
-snap.name = function name(){
-  return moment().format('YYYY-MM-DD-HH-mm-ssZZ').replace(/\+/g, '-').toLowerCase();
-};
+  snap.name = function name(){
+    return moment().format('YYYY-MM-DD-HH-mm-ssZZ').replace(/\+/g, '-').toLowerCase();
+  };
 
-snap.create = function create(cb) {
-  var name = snap.name();
-  es.snapshot.create({
-    repository: repo,
-    snapshot: name,
-    requestTimeout: 600000
-  }, function(err, d) {
-    if (err) return cb(err);
-
-    d.snapshot = name;
-    return cb(err, d);
-  });
-};
-
-snap.list = function list(cb) {
-  es.snapshot.get({
-    repository: repo,
-    snapshot: '_all',
-    requestTimeout: 600000
-  }, function(err, d) {
-    if (err) return cb(err);
-    return cb(null, d.snapshots || []);
-  });
-};
-
-snap.remove = function remove(snapshots, cb) {
-  var d = function(s, done) {
-    es.snapshot.delete({
+  snap.create = function create(cb) {
+    var name = snap.name();
+    es.snapshot.create({
       repository: repo,
-      snapshot: s.snapshot,
+      snapshot: name,
       requestTimeout: 600000
     }, function(err, d) {
       if (err) return cb(err);
 
-      cb(err, {
-        snapshot: s,
-        removal: d
+      d.snapshot = name;
+      return cb(err, d);
+    });
+  };
+
+  snap.list = function list(cb) {
+    es.snapshot.get({
+      repository: repo,
+      snapshot: '_all',
+      // list might take a while if a snapshot creation / deletion is in progress
+      requestTimeout: 600000
+    }, function(err, d) {
+      if (err) return cb(err);
+      return cb(null, d.snapshots || []);
+    });
+  };
+
+  snap.remove = function remove(snapshots, cb) {
+    var d = function(s, done) {
+      es.snapshot.delete({
+        repository: repo,
+        snapshot: s.snapshot,
+        requestTimeout: 600000
+      }, function(err, d) {
+        if (err) return cb(err);
+
+        cb(err, {
+          snapshot: s,
+          removal: d
+        });
       });
+    };
+
+    async.mapLimit(snapshots, 2, d, cb);
+  };
+
+  snap.expired = function expired(snapshots, interval, num) {
+    return snapshots.filter(function(s) {
+      return moment().diff(moment(s.start_time), interval) > num;
     });
   };
 
-  async.mapLimit(snapshots, 2, d, cb);
-};
-
-snap.expired = function expired(snapshots, interval, num) {
-  return snapshots.filter(function(s) {
-    return moment().diff(moment(s.start_time), interval) > num;
-  });
-};
-
-snap.checkRepo = function checkRepo(cb) {
-  es.snapshot.getRepository({
-    repository: repo
-  }, cb);
-};
-
-snap.schedule = function schedule(cb) {
-  var created = [], removed = [], total = 0, list = [];
-  var complete = function(err) {
-    return cb(err, {
-      created: created,
-      removed: removed,
-      total: list.length,
-      list: list
+  snap.checkRepo = function checkRepo(cb) {
+    es.snapshot.getRepository({
+      repository: repo
+    }, function(err, d) {
+      cb(err, d);
     });
   };
 
-  clearTimeout(snap.timeout);
-  snap.timeout = setTimeout(function () {
+  snap.run = function run(cb) {
+    var created, removed = [], total = 0, list = [], locked;
+    var complete = function(err) {
+      return cb(err, {
+        created: created,
+        removed: removed,
+        total: list.length,
+        list: list,
+        locked: locked
+      });
+    };
+
     async.waterfall([
-      snap.check,
+      function(done) {
+        snap.checkLock(done);
+      },
       function(d, done) {
-        if (typeof d !== 'function') return complete();
+        locked = typeof d !== 'function';
+        if (locked) return complete();
+        snap.checkRepo(done);
+      },
+      function (d, done) {
         snap.create(done);
       },
       function(d, done) {
@@ -113,11 +126,15 @@ snap.schedule = function schedule(cb) {
       function(d, done) {
         list = d;
         if (d.length <= c.retention.minimum) return done(null, []);
-        snap.remove(snap.expired(list, c.retention.interval, c.retention.count), done);
+        var exp = snap.expired(list, c.retention.interval, c.retention.num_intervals);
+        snap.remove(exp, done);
       }
     ], function(err, d) {
+      if (err) return complete(err);
       removed = d;
-      return complete(err);
+      return complete();
     });
-  }, c.scheduleInterval);
+  };
+
+  return snap;
 };
