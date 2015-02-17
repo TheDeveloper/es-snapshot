@@ -41,7 +41,8 @@ module.exports = function(opts) {
     es.snapshot.create({
       repository: repo,
       snapshot: name,
-      requestTimeout: 600000
+      requestTimeout: 60000*30,
+      waitForCompletion: true
     }, function(err, d) {
       if (err) return cb(err);
 
@@ -54,8 +55,7 @@ module.exports = function(opts) {
     es.snapshot.get({
       repository: repo,
       snapshot: '_all',
-      // list might take a while if a snapshot creation / deletion is in progress
-      requestTimeout: 600000
+      requestTimeout: 60000*30
     }, function(err, d) {
       if (err) return cb(err);
       return cb(null, d.snapshots || []);
@@ -63,22 +63,22 @@ module.exports = function(opts) {
   };
 
   snap.remove = function remove(snapshots, cb) {
-    var d = function(s, done) {
+    var del = function(s, done) {
       es.snapshot.delete({
         repository: repo,
         snapshot: s.snapshot,
-        requestTimeout: 600000
+        requestTimeout: 60000*30
       }, function(err, d) {
-        if (err) return cb(err);
+        if (err) return done(err);
 
-        cb(err, {
+        done(err, {
           snapshot: s,
           removal: d
         });
       });
     };
 
-    async.mapLimit(snapshots, 2, d, cb);
+    async.mapLimit(snapshots, 1, del, cb);
   };
 
   snap.expired = function expired(snapshots, interval, num) {
